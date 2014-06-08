@@ -1,0 +1,59 @@
+apply plugin: 'groovy'
+
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath group: 'org.jsoup', name: 'jsoup', version: '1.7.3'
+    }
+}
+
+import org.jsoup.nodes.Document
+import org.jsoup.Jsoup
+import org.jsoup.select.Elements
+
+def outputAppName = 'testapp'
+def grailsExecutable = 'grails'
+
+task testAllPlugins << {
+    // wget 'http://grails.org/plugins/?filter=installed&offset=10&max=100' -O 1.html
+    def fileText = new File('1.html').text
+    Document doc = Jsoup.parse(fileText);
+    Elements elements = doc.select("article.plugin p.code code");
+
+    elements*.text().each { pluginDependency ->
+		try {
+			println 'Trying plugin ' + pluginDependency
+			new File(outputAppName).deleteDir()
+
+			def process = new ProcessBuilder([grailsExecutable, 'create-app', outputAppName]).start()
+			assert process.waitFor() == 0
+
+			updateBuildConfig(outputAppName, pluginDependency)
+
+			process = new ProcessBuilder([grailsExecutable, "refresh-dependencies"]).directory(new File(outputAppName)).start()
+			assert process.waitFor() == 0
+			process = new ProcessBuilder([grailsExecutable, "compile"]).directory(new File(outputAppName)).start()
+			assert process.waitFor() == 0
+			println 'Done!'
+		}
+		catch (Exception e) {
+			println e
+		}
+    }
+}
+
+private static updateBuildConfig(String baseDir, String pluginDependency) {
+    def file = new File(baseDir + '/grails-app/conf/BuildConfig.groovy')
+
+    processFileInplace(file) { text ->
+        text.replaceAll("plugins \\{\n", "plugins {\n" + pluginDependency + "\n")
+    }
+}
+
+private static processFileInplace(file, Closure processText) {
+    def text = file.text
+    file.write(processText(text))
+}
